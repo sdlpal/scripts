@@ -8,6 +8,7 @@ import traceback
 import struct
 import sys
 import binascii
+import re
 
 def crc32(buf):
     return hex(binascii.crc32(buf) & 0xFFFFFFFF)
@@ -41,7 +42,7 @@ def main():
     message = ""
 
     version = "2023.02"
-    slf_version = "3.0"
+    slf_version = "3.1"
 
     cmd_extstr = ""
 
@@ -340,10 +341,14 @@ def main():
 
     if options.description and description_bytes != []:
         output += "%s\n" % ('[BEGIN DESCRIPTION]')
+        descriptions = description_bytes.decode(options.encoding, 'replace')
+        lines = descriptions.splitlines()
+        processed_lines=[re.sub("[\(].*[\)]", "", line) if "=" in line else "#"+line for line in lines]
+        processed_str="\n".join(processed_lines)
         if sys.version_info.major >= 3:
-            output += "%s\n" % (description_bytes[0 :].decode(options.encoding, 'replace'))
+            output += "%s\n" % processed_str
         else:
-            output += "%s\n" % (description_bytes[0 :].decode(options.encoding, 'replace').encode('utf-8'))
+            output += "%s\n" % processed_str.encode('utf-8')
         output += "%s\n" % ('[END DESCRIPTION]')
     else:
         if options.description: output += "%s\n" % ('# No DESCRIPTION section in this document.')

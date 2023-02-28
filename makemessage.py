@@ -6,6 +6,11 @@ import argparse
 import os
 import traceback
 import struct
+import sys
+import binascii
+
+def crc32(buf):
+    return hex(binascii.crc32(buf) & 0xFFFFFFFF)
 
 def main():
 
@@ -15,6 +20,7 @@ def main():
     parser.add_argument('encoding', choices = ['gbk', 'big5'], help = 'Text encoding name, should be either gbk or big5.')
     parser.add_argument('-w', '--width', dest = 'wordwidth', default = 10, type = int, help = 'Word width in bytes, default is 10')
     parser.add_argument("-c", "--comment", action = 'store_true', help = 'Automatically generate comments')
+    parser.add_argument("-d", "--description", action = 'store_true', help = 'Generate description section from desc.dat for DOS version.')
     options = parser.parse_args()
 
     if options.gamepath[-1] != '/' and options.gamepath[-1] != '\\':
@@ -24,6 +30,8 @@ def main():
     index_bytes = []
     msg_bytes = []
     word_bytes = []
+    description_bytes = []
+    sss_bytes = []
 
     is_msg_group = 0    #是否正在处理文字组的标示。
     msg_count = 0
@@ -32,6 +40,21 @@ def main():
     comment = ""
     message = ""
 
+    version = "2023.02"
+    slf_version = "3.0"
+
+    cmd_extstr = ""
+
+    if options.comment: cmd_extstr += "-c"
+    if options.description: cmd_extstr += " -d"
+
+    output = "# SDLPAL localization file\n"
+    output += "# Version %s\n" % (slf_version)
+    output += "# This document is generated with MakeMessage Utility ver. %s\n" % (version)
+    output += "# Please visit https://github.com/sdlpal/sdlpal/ for more information.\n\n"
+	
+    output += "# Command line: makemessage.py PATH/TO/THE/GAME/DIRECTORY/ PATH/OF/THE/GENERATED/FILE %s -w %d %s\n\n" % (options.encoding, options.wordwidth, cmd_extstr)
+	
     for file_ in os.listdir(options.gamepath):
         if file_.lower() == 'sss.mkf':
             try:
@@ -41,6 +64,9 @@ def main():
                     f.seek(offset_begin, os.SEEK_SET)
                     index_bytes = f.read(script_begin - offset_begin)
                     script_bytes = f.read(file_end - script_begin)
+
+                    f.seek(0, os.SEEK_SET)
+                    sss_bytes = f.read()
             except:
                 traceback.print_exc()
                 return
@@ -58,11 +84,25 @@ def main():
             except:
                 traceback.print_exc()
                 return
+        elif file_.lower() == 'desc.dat':
+            try:
+                with open(options.gamepath + file_, 'rb') as f:
+                    description_bytes=f.read()
+            except:
+                traceback.print_exc()
+                return
 
+    output += "# CRC32 of the resource files:\n"
+    output += "# SSS.MKF:  %s\n" % (crc32(sss_bytes))
+    output += "# M.MSG:    %s\n" % (crc32(msg_bytes))
+    output += "# WORD.DAT: %s\n" % (crc32(data_bytes))
+    if options.description and description_bytes != []: output += "# DESC.DAT: %s" % (crc32(description_bytes))
+    output += "\n"
+	
     if len(data_bytes) % options.wordwidth != 0:
         data_bytes += [0x20 for i in range(0, options.wordwidth - len(data_bytes) % options.wordwidth)]
 
-    output = "# All lines, except those inside [BEIGN MESSAGE] and [END MESSAGE], can be commented by adding the sharp '#' mark at the first of the line.\n\n"
+    output += "# All lines, except those inside [BEIGN MESSAGE] and [END MESSAGE], can be commented by adding the sharp '#' mark at the first of the line.\n\n"
 
     output += "# This section contains the information that will be displayed when a user finishes the game.\n"
     output += "# Only the keys listed here are valid. Other keys will be ignored.\n"
@@ -194,26 +234,43 @@ def main():
     output += "78=185,184\n"
     output += "79=185,184\n"
     output += "80=185,184\n"
-    output += "# 81 .. 82 are extra description lines in the item (81) & magic (82) menu, where the first value specifies the lines and the second value should be zero\n"
+    output += "# 81 .. 82 are extra description lines in the item (81) & magic (82) menu, where the first value specifies the lines and the second value should be zero.\n"
     output += "81=2,0\n"
     output += "82=1,0\n"
+    output += "# 83 .. 87 customize the layout of MP information and description message in the magic menu.\n"
+    output += "# 83 customizes the width of the MP column with its first value. The default value is 5. Use 3 for a narrower one. The second value should be zero.\n"
+    output += "83=5,0\n"
+    output += "# 84 .. 86 are the coordinates of the slash mark, required MP and current player MP.\n"
+    output += "84=45,14\n"
+    output += "85=15,14\n"
+    output += "86=50,14\n"
+    output += "# 87 customizes the X coordinate of the description message with its first value and the second value should be zero.\n"
+    output += "87=70,0\n"
     output += "[END LAYOUT]\n\n"
 
     output += "# This section contains the words used by the game.\n"
     output += "[BEGIN WORDS]\n"
     output += "# Each line is a pattern of 'key=value', where key is an integer and value is a string.\n"
-    for i in range(0, len(data_bytes) / options.wordwidth):
-        temp = data_bytes[i * options.wordwidth: (i + 1) * options.wordwidth].rstrip('\x20\x00').decode(options.encoding).encode('utf-8')
+
+    for i in range(0, len(data_bytes) // options.wordwidth):
+        if sys.version_info.major >= 3:
+            temp = data_bytes[i * options.wordwidth: (i + 1) * options.wordwidth].rstrip(str.encode('\x20\x00')).decode(options.encoding)
+        else:
+            temp = data_bytes[i * options.wordwidth: (i + 1) * options.wordwidth].rstrip('\x20\x00').decode(options.encoding).encode('utf-8')
         if options.comment: output += "# Original word: %d=%s\n" % (i, temp)
         output += "%d=%s\n" % (i, temp)
-    output += "600=Headgear\n"
-    output += "601=Body Gear\n"
-    output += "602=Clothing\n"
-    output += "603=Weapon\n"
-    output += "604=Footwear\n"
-    output += "605=Accessory\n"
-    output += "# The following six words are for ATB only. It is not used in classical mode.\n"
-    output += "606=Battle Speed\n"
+    output += "# 600 .. 605 are extra description lines in the equipments menu: Headgear, Body Gear, Clothing, Weapon, Footwear, Accessory.\n"
+    output += "600=頭戴\n"
+    output += "601=披掛\n"
+    output += "602=身穿\n"
+    output += "603=手持\n"
+    output += "604=脚穿\n"
+    output += "605=佩帶\n"
+    output += "# The following six words are for ATB only: Battle Speed, 1, 2, 3, 4, 5. They are not used in classical mode.\n"
+    if options.encoding == "gbk":
+        output += "606=战斗速度\n"
+    else:
+        output += "606=戰鬥速度\n"
     output += "# The following five words are for ATB battle speed. It is not used in classical mode.\n"
     output += "607=1\n"
     output += "608=2\n"
@@ -221,14 +278,25 @@ def main():
     output += "610=4\n"
     output += "611=5\n"
     output += "# The following word is used to ask user whether to launch setting interface on next game start.\n"
-    output += "612=Setting\n"
+    if options.encoding == "gbk":
+        output += "612=返回设定\n"
+    else:
+        output += "612=返回設定\n"
     output += "[END WORDS]\n\n"
 
     output += "# The following sections contain dialog/description texts used by the game.\n\n"
 
-    print "Now Processing. Please wait..."
-    
-    for i in range(0, len(script_bytes) / 8):
+    if sys.version_info.major >= 3:
+        print ("MakeMessage Utility by SDLPal Team ver. %s" % (version))
+        print ("Python 3 adaption by PalAlexx, OPL3ChipFan and Palxex")
+        print ("Now Processing. Please wait...")
+    else:
+        print ("MakeMessage Utility by SDLPal Team ver. %s" % (version))
+        print ("Python 3 adaption by PalAlexx, OPL3ChipFan and Palxex")
+        print ("Running in Python 2 compatibility mode. Python 3 is recommended.")
+        print ("Now Processing. Please wait...")
+
+    for i in range(0, len(script_bytes) // 8):
         op, w1, w2, w3 = struct.unpack('<HHHH', script_bytes[i * 8 : (i + 1) * 8])
         if op == 0xFFFF:
             if is_msg_group == 1 and last_index + 1 != w1:
@@ -247,7 +315,10 @@ def main():
             msg_begin, msg_end = struct.unpack("<II",index_bytes[w1 * 4 : (w1 + 2) * 4])
 
             try:
-                temp = "%s\n" % (msg_bytes[msg_begin : msg_end].decode(options.encoding, 'replace').encode('utf-8'))
+                if sys.version_info.major >= 3:
+                    temp = "%s\n" % (msg_bytes[msg_begin : msg_end].decode(options.encoding, 'replace'))
+                else:
+                    temp = "%s\n" % (msg_bytes[msg_begin : msg_end].decode(options.encoding, 'replace').encode('utf-8'))
                 message += temp
                 if options.comment: comment += "# " + temp
             except:
@@ -267,14 +338,30 @@ def main():
                 message += temp
                 output += comment + message
 
+    if options.description and description_bytes != []:
+        output += "%s\n" % ('[BEGIN DESCRIPTION]')
+        if sys.version_info.major >= 3:
+            output += "%s\n" % (description_bytes[0 :].decode(options.encoding, 'replace'))
+        else:
+            output += "%s\n" % (description_bytes[0 :].decode(options.encoding, 'replace').encode('utf-8'))
+        output += "%s\n" % ('[END DESCRIPTION]')
+    else:
+        if options.description: output += "%s\n" % ('# No DESCRIPTION section in this document.')
+        if options.description: print ("desc.dat is missing or is a blank document.")
     try:
-        with open(options.outputfile, "wt") as f:
-            f.write(output)
+        if sys.version_info.major >= 3:
+            with open(options.outputfile, "w", encoding = "utf-8") as f:
+                f.write(output)
+        else:
+            with open(options.outputfile, "wt") as f:
+                f.write(output)
+
     except:
         traceback.print_exc()
 
-    print "OK! Extraction finished!"
-    print "Original Dialog script count: " + str(msg_count)
+    print ("OK! Extraction finished!")
+    print ("Original Dialog script count: " + str(msg_count))
+
 
 if __name__ == '__main__':
     main()

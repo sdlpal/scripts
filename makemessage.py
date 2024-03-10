@@ -41,7 +41,7 @@ def main():
     comment = ""
     message = ""
 
-    version = "2023.02"
+    version = "2024.03"
     slf_version = "3.1"
 
     cmd_extstr = ""
@@ -246,7 +246,7 @@ def main():
     output += "85=15,14\n"
     output += "86=50,14\n"
     output += "# 87 customizes the X coordinate of the description message with its first value and the second value should be zero.\n"
-    output += "87=70,0\n"
+    output += "87=102,0\n"
     output += "[END LAYOUT]\n\n"
 
     output += "# This section contains the words used by the game.\n"

@@ -12,6 +12,13 @@ import re
 
 def crc32(buf):
     return hex(binascii.crc32(buf) & 0xFFFFFFFF)
+    
+def get_msg(msg_bytes,index_bytes,p,encoding):
+    msg_begin, msg_end = struct.unpack("<II",index_bytes[p * 4 : (p + 2) * 4])
+    msg =  msg_bytes[msg_begin : msg_end].decode(encoding, 'replace')
+    if not sys.version_info.major >= 3:
+        msg = msg.encode('utf-8')
+    return msg
 
 def main():
 
@@ -22,6 +29,7 @@ def main():
     parser.add_argument('-w', '--width', dest = 'wordwidth', default = 10, type = int, help = 'Word width in bytes, default is 10')
     parser.add_argument("-c", "--comment", action = 'store_true', help = 'Automatically generate comments')
     parser.add_argument("-d", "--description", action = 'store_true', help = 'Generate description section from desc.dat for DOS version.')
+    parser.add_argument("--compact", dest='is_compact', action='store_true', default=False, help = 'Generate SLF that works with index-compacted resources.')
     options = parser.parse_args()
 
     if options.gamepath[-1] != '/' and options.gamepath[-1] != '\\':
@@ -37,6 +45,7 @@ def main():
     is_msg_group = 0    #是否正在处理文字组的标示。
     msg_count = 0
     last_index = -1
+    continue_msgs = 0
     temp = ""
     comment = ""
     message = ""
@@ -300,7 +309,8 @@ def main():
     for i in range(0, len(script_bytes) // 8):
         op, w1, w2, w3 = struct.unpack('<HHHH', script_bytes[i * 8 : (i + 1) * 8])
         if op == 0xFFFF:
-            if is_msg_group == 1 and last_index + 1 != w1:
+            msg = get_msg(msg_bytes, index_bytes, w1, options.encoding)
+            if is_msg_group == 1 and (last_index + 1 != w1 or (options.is_compact and continue_msgs == 1 and (get_msg(msg_bytes, index_bytes, last_index, options.encoding).endswith('：') or get_msg(msg_bytes, index_bytes, last_index, options.encoding).endswith(':')))):
                 is_msg_group = 0
                 temp = "%s %d\n\n" % ('[END MESSAGE]', last_index)
                 message += temp
@@ -310,16 +320,14 @@ def main():
                 is_msg_group = 1
                 message = "%s %d\n" % ('[BEGIN MESSAGE]', w1)
                 if options.comment: comment = "# Original message: %d\n" % w1
+                continue_msgs = 0
 
             last_index = w1
             msg_count += 1
-            msg_begin, msg_end = struct.unpack("<II",index_bytes[w1 * 4 : (w1 + 2) * 4])
+            continue_msgs += 1
 
             try:
-                if sys.version_info.major >= 3:
-                    temp = "%s\n" % (msg_bytes[msg_begin : msg_end].decode(options.encoding, 'replace'))
-                else:
-                    temp = "%s\n" % (msg_bytes[msg_begin : msg_end].decode(options.encoding, 'replace').encode('utf-8'))
+                temp = "%s\n" % (msg)
                 message += temp
                 if options.comment: comment += "# " + temp
             except:
